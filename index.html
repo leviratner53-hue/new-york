@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wayfare</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap">
+<style>
+  :root {
+    --bg: #F6F5F1;
+    --surface: #FFFFFF;
+    --surface-2: #EFEEE7;
+    --border: #E1DFD3;
+    --text: #1B211D;
+    --text-muted: #6C7369;
+    --accent: #1F9C7D;
+    --accent-strong: #147A62;
+    --accent-soft: #DCEFE7;
+    --owe: #C6543D;
+    --owe-soft: #F7E3DD;
+    --owe-strong: #A6432E;
+    --focus: #147A62;
+    --shadow: 0 1px 2px rgba(27,33,29,0.06), 0 8px 20px rgba(27,33,29,0.06);
+    --radius-sm: 8px;
+    --radius-md: 14px;
+    --radius-lg: 22px;
+    --avatar-1: #1F9C7D;
+    --avatar-2: #3E6E9C;
+    --avatar-3: #A17A1E;
+    --avatar-4: #7A5AA6;
+    --avatar-5: #B84D68;
+    --avatar-6: #45897A;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #101512;
+      --surface: #171D19;
+      --surface-2: #1E2622;
+      --border: #2A322C;
+      --text: #EDEFEA;
+      --text-muted: #8D968B;
+      --accent: #35C79A;
+      --accent-strong: #55E0B4;
+      --accent-soft: #1B372E;
+      --owe: #E8785F;
+      --owe-soft: #3A241D;
+      --owe-strong: #F0917A;
+      --focus: #55E0B4;
+      --shadow: 0 1px 2px rgba(0,0,0,0.35), 0 10px 26px rgba(0,0,0,0.4);
+      --avatar-1: #35C79A;
+      --avatar-2: #74AEDD;
+      --avatar-3: #DDB661;
+      --avatar-4: #B594E3;
+      --avatar-5: #E390A7;
+      --avatar-6: #83C8B6;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #101512;
+    --surface: #171D19;
+    --surface-2: #1E2622;
+    --border: #2A322C;
+    --text: #EDEFEA;
+    --text-muted: #8D968B;
+    --accent: #35C79A;
+    --accent-strong: #55E0B4;
+    --accent-soft: #1B372E;
+    --owe: #E8785F;
+    --owe-soft: #3A241D;
+    --owe-strong: #F0917A;
+    --focus: #55E0B4;
+    --shadow: 0 1px 2px rgba(0,0,0,0.35), 0 10px 26px rgba(0,0,0,0.4);
+    --avatar-1: #35C79A;
+    --avatar-2: #74AEDD;
+    --avatar-3: #DDB661;
+    --avatar-4: #B594E3;
+    --avatar-5: #E390A7;
+    --avatar-6: #83C8B6;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Public Sans', system-ui, -apple-system, Segoe UI, sans-serif;
+    font-size: 16px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3, .brand-name { font-family: 'Sora', system-ui, sans-serif; text-wrap: balance; }
+  button, input, select { font: inherit; color: inherit; }
+  .num { font-variant-numeric: tabular-nums; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+
+  .app {
+    display: flex;
+    min-height: 100vh;
+    max-width: 1080px;
+    margin: 0 auto;
+  }
+
+  .rail {
+    width: 232px;
+    flex-shrink: 0;
+    padding: 2rem 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+    border-right: 1px solid var(--border);
+  }
+  .brand { display: flex; align-items: center; gap: 0.6rem; }
+  .brand-mark {
+    width: 36px; height: 36px;
+    border-radius: var(--radius-sm);
+    background: var(--accent-soft);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.1rem;
+  }
+  .brand-name { font-size: 1.25rem; font-weight: 700; letter-spacing: -0.01em; }
+
+  .nav { display: flex; flex-direction: column; gap: 0.25rem; }
+  .nav-item {
+    display: flex; align-items: center; gap: 0.65rem;
+    text-align: left;
+    background: none; border: none;
+    padding: 0.6rem 0.75rem;
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    font-size: 0.95rem; font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+  .nav-item:hover { background: var(--surface-2); color: var(--text); }
+  .nav-item.active { background: var(--accent-soft); color: var(--accent-strong); }
+  .nav-item svg { flex-shrink: 0; }
+
+  .main {
+    flex: 1;
+    min-width: 0;
+    padding: 2.5rem 2rem 4rem;
+  }
+  .view { display: flex; flex-direction: column; gap: 1.75rem; max-width: 640px; }
+  .view.hidden { display: none; }
+
+  .view-header { display: flex; flex-direction: column; gap: 0.2rem; }
+  .view-title { font-size: 1.5rem; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+  .view-sub { color: var(--text-muted); font-size: 0.9rem; margin: 0; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow);
+    padding: 1.5rem;
+  }
+
+  .field { display: flex; flex-direction: column; gap: 0.4rem; }
+  .field label { font-size: 0.8rem; font-weight: 600; color: var(--text-muted); }
+  .input, select.input {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 0.65rem 0.8rem;
+    font-size: 0.95rem;
+    color: var(--text);
+    outline: none;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .input:focus-visible, select.input:focus-visible {
+    border-color: var(--focus);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 20%, transparent);
+  }
+  .row-2 { display: grid; grid-template-columns: 1.4fr 1fr; gap: 0.75rem; }
+
+  .segmented {
+    display: inline-flex; width: fit-content;
+    background: var(--surface-2);
+    border-radius: 999px;
+    padding: 3px;
+    gap: 2px;
+  }
+  .segment { position: relative; cursor: pointer; }
+  .segment input { position: absolute; opacity: 0; pointer-events: none; }
+  .segment span {
+    display: block;
+    padding: 0.4rem 0.9rem;
+    border-radius: 999px;
+    font-size: 0.82rem; font-weight: 600;
+    color: var(--text-muted);
+    transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .segment input:checked + span { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+  .segment input:focus-visible + span { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+  .split-list { display: flex; flex-direction: column; gap: 0.3rem; }
+  .split-row {
+    display: flex; align-items: center; gap: 0.65rem;
+    padding: 0.45rem 0.5rem;
+    border-radius: var(--radius-sm);
+  }
+  .split-row:hover { background: var(--surface-2); }
+  .split-row input[type="checkbox"] { accent-color: var(--accent); width: 17px; height: 17px; cursor: pointer; }
+  .split-row .split-name { flex: 1; font-size: 0.92rem; }
+  .split-amount {
+    width: 100px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 0.35rem 0.55rem;
+    font-size: 0.88rem;
+  }
+  .split-amount.hidden { display: none; }
+
+  .error-text { color: var(--owe-strong); font-size: 0.82rem; }
+  .error-text.hidden { display: none; }
+
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
+    border: none; border-radius: var(--radius-sm);
+    padding: 0.65rem 1rem;
+    font-size: 0.92rem; font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s ease, transform 0.05s ease;
+  }
+  .btn:active { transform: translateY(1px); }
+  .btn-primary { background: var(--accent); color: #ffffff; width: 100%; }
+  .btn-primary:hover { background: var(--accent-strong); }
+  .btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+  .icon-btn {
+    background: none; border: none; cursor: pointer;
+    color: var(--text-muted);
+    padding: 0.4rem;
+    border-radius: var(--radius-sm);
+    display: flex;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+  .icon-btn:hover { background: var(--owe-soft); color: var(--owe-strong); }
+  .icon-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+  .list { display: flex; flex-direction: column; gap: 0.5rem; }
+  .list-item {
+    display: flex; align-items: center; gap: 0.85rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 0.75rem 0.9rem;
+  }
+  .avatar {
+    width: 38px; height: 38px; flex-shrink: 0;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-weight: 700; font-size: 0.85rem;
+  }
+  .avatar-sm { width: 30px; height: 30px; font-size: 0.75rem; }
+  .item-body { flex: 1; min-width: 0; }
+  .item-title { font-weight: 600; font-size: 0.95rem; }
+  .item-meta { color: var(--text-muted); font-size: 0.8rem; margin-top: 0.1rem; }
+  .item-amount { font-weight: 700; font-size: 0.95rem; white-space: nowrap; }
+
+  .section-label {
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 0.8rem; font-weight: 700; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.06em;
+    margin-bottom: 0.6rem;
+  }
+  .count-badge {
+    background: var(--surface-2); color: var(--text-muted);
+    font-size: 0.72rem; font-weight: 700;
+    padding: 0.1rem 0.5rem; border-radius: 999px;
+    text-transform: none; letter-spacing: normal;
+  }
+
+  .empty {
+    color: var(--text-muted); font-size: 0.88rem;
+    padding: 1rem; text-align: center;
+    border: 1px dashed var(--border); border-radius: var(--radius-md);
+  }
+
+  .balance-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.6rem; }
+  .balance-card {
+    display: flex; align-items: center; gap: 0.7rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 0.75rem 0.85rem;
+  }
+  .balance-name { font-weight: 600; font-size: 0.88rem; }
+  .balance-amt { font-size: 0.78rem; font-weight: 700; }
+  .balance-amt.pos { color: var(--accent-strong); }
+  .balance-amt.neg { color: var(--owe-strong); }
+  .balance-amt.zero { color: var(--text-muted); }
+  .pill {
+    font-size: 0.7rem; font-weight: 700;
+    padding: 0.15rem 0.5rem; border-radius: 999px;
+  }
+  .pill.pos { background: var(--accent-soft); color: var(--accent-strong); }
+  .pill.neg { background: var(--owe-soft); color: var(--owe-strong); }
+
+  .txn-row {
+    display: flex; align-items: center; gap: 0.7rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 0.7rem 0.9rem;
+  }
+  .txn-names { display: flex; align-items: center; gap: 0.5rem; flex: 1; font-weight: 600; font-size: 0.9rem; }
+  .txn-amount { font-weight: 700; color: var(--accent-strong); }
+
+  @media (max-width: 760px) {
+    .app { flex-direction: column; }
+    .rail {
+      width: auto; flex-direction: row; align-items: center;
+      justify-content: space-between;
+      border-right: none; border-bottom: 1px solid var(--border);
+      padding: 1rem 1.25rem;
+    }
+    .nav { flex-direction: row; }
+    .main { padding: 1.5rem 1.25rem 3rem; }
+    .row-2 { grid-template-columns: 1fr; }
+    .balance-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="rail">
+    <div class="brand">
+      <span class="brand-mark">🧾</span>
+      <span class="brand-name">Wayfare</span>
+    </div>
+    <nav class="nav">
+      <button class="nav-item" data-view="expenses">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h5"/></svg>
+        Расходы
+      </button>
+      <button class="nav-item" data-view="participants">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3 2.5-5 6-5s6 2 6 5"/><circle cx="17" cy="8" r="2.5"/><path d="M17 12c2.5 0 4.5 1.8 4.5 4.5"/></svg>
+        Участники
+      </button>
+      <button class="nav-item" data-view="settle">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 7h11l-3-3M17 17H6l3 3"/></svg>
+        Расчёт
+      </button>
+    </nav>
+  </aside>
+
+  <main class="main">
+
+    <section id="viewExpenses" class="view">
+      <div class="view-header">
+        <h1 class="view-title">Расходы</h1>
+        <p class="view-sub">Добавляйте траты поездки и делите их между участниками</p>
+      </div>
+
+      <form id="expenseForm" class="card" style="display:flex;flex-direction:column;gap:1.1rem;">
+        <div class="field">
+          <label for="expDescription">Описание</label>
+          <input id="expDescription" class="input" type="text" placeholder="Например, ужин в кафе" required>
+        </div>
+        <div class="row-2">
+          <div class="field">
+            <label for="expPayer">Кто платил</label>
+            <select id="expPayer" class="input" required></select>
+          </div>
+          <div class="field">
+            <label for="expAmount">Сумма</label>
+            <input id="expAmount" class="input" type="number" step="1" min="0" placeholder="0.00" required>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Тип разделения</label>
+          <div class="segmented" role="radiogroup" aria-label="Тип разделения">
+            <label class="segment"><input type="radio" name="splitType" value="equal" checked><span>Поровну</span></label>
+            <label class="segment"><input type="radio" name="splitType" value="custom"><span>Вручную</span></label>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Разделить между</label>
+          <div id="expSplit" class="split-list"></div>
+          <p id="splitError" class="error-text hidden"></p>
+        </div>
+
+        <button class="btn btn-primary" type="submit">Добавить расход</button>
+      </form>
+
+      <div>
+        <div class="section-label">
+          <span>История</span>
+          <span id="expenseCount" class="count-badge">0</span>
+        </div>
+        <ul id="expenseList" class="list" style="list-style:none;padding:0;margin:0;"></ul>
+      </div>
+    </section>
+
+    <section id="viewParticipants" class="view hidden">
+      <div class="view-header">
+        <h1 class="view-title">Участники</h1>
+        <p class="view-sub">Кто едет в эту поездку</p>
+      </div>
+
+      <form id="participantForm" class="card" style="display:flex;gap:0.6rem;">
+        <input id="participantName" class="input" type="text" placeholder="Имя" required>
+        <button class="btn btn-primary" style="width:auto;white-space:nowrap;" type="submit">Добавить</button>
+      </form>
+
+      <ul id="participantList" class="list" style="list-style:none;padding:0;margin:0;"></ul>
+    </section>
+
+    <section id="viewSettle" class="view hidden">
+      <div class="view-header">
+        <h1 class="view-title">Расчёт</h1>
+        <p class="view-sub">Минимальное число переводов, чтобы закрыть все долги</p>
+      </div>
+      <div id="settleResult" style="display:flex;flex-direction:column;gap:1.5rem;"></div>
+    </section>
+
+  </main>
+</div>
+
+<script>
+const store = {
+  get participants() { return JSON.parse(localStorage.getItem('participants') || '[]'); },
+  set participants(v) { localStorage.setItem('participants', JSON.stringify(v)); },
+  get expenses() { return JSON.parse(localStorage.getItem('expenses') || '[]'); },
+  set expenses(v) { localStorage.setItem('expenses', JSON.stringify(v)); }
+};
+
+const AVATAR_VARS = ['--avatar-1', '--avatar-2', '--avatar-3', '--avatar-4', '--avatar-5', '--avatar-6'];
+
+function avatarColor(name) {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+  return `var(${AVATAR_VARS[hash % AVATAR_VARS.length]})`;
+}
+
+function initials(name) {
+  const parts = name.trim().split(/\s+/);
+  return parts.length > 1
+    ? (parts[0][0] + parts[1][0]).toUpperCase()
+    : name.slice(0, 2).toUpperCase();
+}
+
+function avatarHtml(name, size) {
+  const sizeClass = size === 'sm' ? ' avatar-sm' : '';
+  return `<div class="avatar${sizeClass}" style="background:${avatarColor(name)}">${escapeHtml(initials(name))}</div>`;
+}
+
+const tabs = { expenses: 'viewExpenses', participants: 'viewParticipants', settle: 'viewSettle' };
+function showTab(name) {
+  Object.values(tabs).forEach(id => document.getElementById(id).classList.add('hidden'));
+  document.getElementById(tabs[name]).classList.remove('hidden');
+  document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === name));
+  if (name === 'settle') renderSettle();
+}
+document.querySelectorAll('.nav-item').forEach(btn => {
+  btn.addEventListener('click', () => showTab(btn.dataset.view));
+});
+
+function renderParticipants() {
+  const list = document.getElementById('participantList');
+  const people = store.participants;
+  list.innerHTML = people.map((p, i) => `
+    <li class="list-item">
+      ${avatarHtml(p)}
+      <div class="item-body"><div class="item-title">${escapeHtml(p)}</div></div>
+      <button data-idx="${i}" class="icon-btn removeParticipant" aria-label="Удалить ${escapeHtml(p)}">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
+      </button>
+    </li>`).join('') || '<li class="empty">Пока нет участников. Добавьте первого выше.</li>';
+
+  list.querySelectorAll('.removeParticipant').forEach(btn => {
+    btn.onclick = () => {
+      const idx = +btn.dataset.idx;
+      const name = people[idx];
+      const arr = store.participants;
+      arr.splice(idx, 1);
+      store.participants = arr;
+      store.expenses = store.expenses.filter(e => e.payer !== name).map(e => ({ ...e, split: e.split.filter(s => s !== name) }));
+      renderParticipants();
+      renderExpenseForm();
+      renderExpenses();
+    };
+  });
+}
+
+function getSplitType() {
+  return document.querySelector('input[name="splitType"]:checked').value;
+}
+
+function renderExpenseForm() {
+  const people = store.participants;
+  const payerSel = document.getElementById('expPayer');
+  payerSel.innerHTML = people.map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('');
+
+  const splitDiv = document.getElementById('expSplit');
+  splitDiv.innerHTML = people.map(p => `
+    <label class="split-row">
+      <input type="checkbox" class="splitCheckbox" value="${escapeHtml(p)}" checked>
+      ${avatarHtml(p, 'sm')}
+      <span class="split-name">${escapeHtml(p)}</span>
+      <input type="number" step="1" min="0" placeholder="0.00" class="split-amount hidden">
+    </label>`).join('') || '<p class="empty">Сначала добавьте участников на вкладке «Участники».</p>';
+
+  updateSplitMode();
+}
+
+function updateSplitMode() {
+  const isCustom = getSplitType() === 'custom';
+  document.querySelectorAll('.split-amount').forEach(input => input.classList.toggle('hidden', !isCustom));
+  document.getElementById('splitError').classList.add('hidden');
+}
+
+document.querySelectorAll('input[name="splitType"]').forEach(r => r.addEventListener('change', updateSplitMode));
+
+function renderExpenses() {
+  const list = document.getElementById('expenseList');
+  const expenses = store.expenses;
+  document.getElementById('expenseCount').textContent = expenses.length;
+  list.innerHTML = expenses.map((e, i) => `
+    <li class="list-item">
+      ${avatarHtml(e.payer)}
+      <div class="item-body">
+        <div class="item-title">${escapeHtml(e.description)}</div>
+        <div class="item-meta">Оплатил(а) ${escapeHtml(e.payer)} · делят: ${
+          e.customAmounts
+            ? e.split.map(p => `${escapeHtml(p)} ($${e.customAmounts[p].toFixed(2)})`).join(', ')
+            : e.split.map(escapeHtml).join(', ')
+        }</div>
+      </div>
+      <div class="item-amount num">$${e.amount.toFixed(2)}</div>
+      <button data-idx="${i}" class="icon-btn removeExpense" aria-label="Удалить расход">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
+      </button>
+    </li>`).join('') || '<li class="empty">Пока нет расходов. Добавьте первый выше.</li>';
+
+  list.querySelectorAll('.removeExpense').forEach(btn => {
+    btn.onclick = () => {
+      const arr = store.expenses;
+      arr.splice(+btn.dataset.idx, 1);
+      store.expenses = arr;
+      renderExpenses();
+    };
+  });
+}
+
+function computeBalances() {
+  const balances = {};
+  store.participants.forEach(p => balances[p] = 0);
+  store.expenses.forEach(e => {
+    if (!e.split.length) return;
+    if (e.customAmounts) {
+      e.split.forEach(p => { if (p in balances) balances[p] -= e.customAmounts[p]; });
+    } else {
+      const share = e.amount / e.split.length;
+      e.split.forEach(p => { if (p in balances) balances[p] -= share; });
+    }
+    if (e.payer in balances) balances[e.payer] += e.amount;
+  });
+  return balances;
+}
+
+function minimizeTransactions(balances) {
+  const creditors = [], debtors = [];
+  Object.entries(balances).forEach(([name, amt]) => {
+    const rounded = Math.round(amt * 100) / 100;
+    if (rounded > 0.005) creditors.push({ name, amt: rounded });
+    else if (rounded < -0.005) debtors.push({ name, amt: -rounded });
+  });
+  creditors.sort((a, b) => b.amt - a.amt);
+  debtors.sort((a, b) => b.amt - a.amt);
+
+  const txns = [];
+  let i = 0, j = 0;
+  while (i < debtors.length && j < creditors.length) {
+    const pay = Math.min(debtors[i].amt, creditors[j].amt);
+    txns.push({ from: debtors[i].name, to: creditors[j].name, amount: Math.round(pay * 100) / 100 });
+    debtors[i].amt -= pay;
+    creditors[j].amt -= pay;
+    if (debtors[i].amt < 0.005) i++;
+    if (creditors[j].amt < 0.005) j++;
+  }
+  return txns;
+}
+
+function renderSettle() {
+  const balances = computeBalances();
+  const txns = minimizeTransactions(balances);
+  const result = document.getElementById('settleResult');
+
+  const balanceCards = Object.entries(balances).map(([name, amt]) => {
+    const r = Math.round(amt * 100) / 100;
+    const cls = r > 0 ? 'pos' : r < 0 ? 'neg' : 'zero';
+    const label = r > 0 ? `+$${r.toFixed(2)}` : r < 0 ? `-$${Math.abs(r).toFixed(2)}` : 'в расчёте';
+    return `
+      <div class="balance-card">
+        ${avatarHtml(name, 'sm')}
+        <div class="item-body">
+          <div class="balance-name">${escapeHtml(name)}</div>
+          <div class="balance-amt num ${cls}">${label}</div>
+        </div>
+      </div>`;
+  }).join('');
+
+  const balanceSection = `
+    <div>
+      <div class="section-label"><span>Балансы</span></div>
+      <div class="balance-grid">${balanceCards || '<p class="empty">Пока нет участников.</p>'}</div>
+    </div>`;
+
+  const txnRows = txns.map(t => `
+    <div class="txn-row">
+      <div class="txn-names">
+        ${avatarHtml(t.from, 'sm')}
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="color:var(--text-muted);flex-shrink:0;"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        ${avatarHtml(t.to, 'sm')}
+        <span>${escapeHtml(t.from)} → ${escapeHtml(t.to)}</span>
+      </div>
+      <div class="txn-amount num">$${t.amount.toFixed(2)}</div>
+    </div>`).join('');
+
+  const txnSection = `
+    <div>
+      <div class="section-label"><span>Переводы</span></div>
+      <div style="display:flex;flex-direction:column;gap:0.5rem;">
+        ${txnRows || '<p class="empty">Все расчёты завершены — переводов не требуется.</p>'}
+      </div>
+    </div>`;
+
+  result.innerHTML = balanceSection + txnSection;
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+document.getElementById('participantForm').addEventListener('submit', e => {
+  e.preventDefault();
+  const input = document.getElementById('participantName');
+  const name = input.value.trim();
+  if (!name) return;
+  const arr = store.participants;
+  if (!arr.includes(name)) {
+    arr.push(name);
+    store.participants = arr;
+    renderParticipants();
+    renderExpenseForm();
+  }
+  input.value = '';
+});
+
+document.getElementById('expenseForm').addEventListener('submit', e => {
+  e.preventDefault();
+  const description = document.getElementById('expDescription').value.trim();
+  const payer = document.getElementById('expPayer').value;
+  const amount = parseFloat(document.getElementById('expAmount').value);
+  const errorEl = document.getElementById('splitError');
+  errorEl.classList.add('hidden');
+
+  const rows = [...document.querySelectorAll('#expSplit .split-row')];
+  const checked = rows.filter(row => row.querySelector('.splitCheckbox').checked);
+  const split = checked.map(row => row.querySelector('.splitCheckbox').value);
+  if (!description || !payer || !amount || amount <= 0 || split.length === 0) return;
+
+  let customAmounts = null;
+  if (getSplitType() === 'custom') {
+    customAmounts = {};
+    let sum = 0;
+    for (const row of checked) {
+      const name = row.querySelector('.splitCheckbox').value;
+      const val = parseFloat(row.querySelector('.split-amount').value);
+      if (!val || val < 0) {
+        errorEl.textContent = `Введите сумму для ${name}.`;
+        errorEl.classList.remove('hidden');
+        return;
+      }
+      customAmounts[name] = val;
+      sum += val;
+    }
+    if (Math.abs(sum - amount) > 0.01) {
+      errorEl.textContent = `Сумма долей (${sum.toFixed(2)}) не совпадает с суммой расхода (${amount.toFixed(2)}).`;
+      errorEl.classList.remove('hidden');
+      return;
+    }
+  }
+
+  const arr = store.expenses;
+  arr.push(customAmounts ? { description, payer, amount, split, customAmounts } : { description, payer, amount, split });
+  store.expenses = arr;
+
+  e.target.reset();
+  renderExpenseForm();
+  renderExpenses();
+});
+
+renderParticipants();
+renderExpenseForm();
+renderExpenses();
+showTab('expenses');
+</script>
+</body>
+</html>
