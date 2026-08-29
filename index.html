@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Wayfare</title>
+<title>תשרי</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap">
@@ -126,6 +126,16 @@
     font-size: 1.1rem;
   }
   .brand-name { font-size: 1.25rem; font-weight: 700; letter-spacing: -0.01em; }
+
+  .site-footer {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 1.5rem 1.25rem 2rem;
+    border-top: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    text-align: center;
+  }
 
   .nav { display: flex; flex-direction: column; gap: 0.25rem; }
   .nav-item {
@@ -337,7 +347,7 @@
   <aside class="rail">
     <div class="brand">
       <span class="brand-mark">🧾</span>
-      <span class="brand-name">Wayfare</span>
+      <span class="brand-name" dir="rtl">תשרי</span>
     </div>
     <nav class="nav">
       <button class="nav-item" data-view="expenses">
@@ -429,6 +439,8 @@
 
   </main>
 </div>
+
+<footer class="site-footer">Levi project</footer>
 
 <script>
 const store = {
