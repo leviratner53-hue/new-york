@@ -221,7 +221,7 @@
   .split-row:hover { background: var(--surface-2); }
   .split-row input[type="checkbox"] { accent-color: var(--accent); width: 17px; height: 17px; cursor: pointer; }
   .split-row .split-name { flex: 1; font-size: 0.92rem; }
-  .split-amount {
+  .split-amount, .payer-amount {
     width: 100px;
     background: var(--bg);
     border: 1px solid var(--border);
@@ -229,7 +229,7 @@
     padding: 0.35rem 0.55rem;
     font-size: 0.88rem;
   }
-  .split-amount.hidden { display: none; }
+  .split-amount.hidden, .payer-amount.hidden { display: none; }
 
   .error-text { color: var(--owe-strong); font-size: 0.82rem; }
   .error-text.hidden { display: none; }
@@ -378,15 +378,15 @@
           <label for="expDescription">Описание</label>
           <input id="expDescription" class="input" type="text" placeholder="Например, ужин в кафе" required>
         </div>
-        <div class="row-2">
-          <div class="field">
-            <label for="expPayer">Кто платил</label>
-            <select id="expPayer" class="input" required></select>
-          </div>
-          <div class="field">
-            <label for="expAmount">Сумма</label>
-            <input id="expAmount" class="input" type="number" step="1" min="0" placeholder="0.00" required>
-          </div>
+        <div class="field">
+          <label for="expAmount">Сумма</label>
+          <input id="expAmount" class="input" type="number" step="1" min="0" placeholder="0.00" required>
+        </div>
+
+        <div class="field">
+          <label>Кто платил</label>
+          <div id="expPayers" class="split-list"></div>
+          <p id="payerError" class="error-text hidden"></p>
         </div>
 
         <div class="field">
@@ -500,7 +500,7 @@ function renderParticipants() {
       const arr = store.participants;
       arr.splice(idx, 1);
       store.participants = arr;
-      store.expenses = store.expenses.filter(e => e.payer !== name).map(e => ({ ...e, split: e.split.filter(s => s !== name) }));
+      store.expenses = store.expenses.filter(e => !(name in getPayments(e))).map(e => ({ ...e, split: e.split.filter(s => s !== name) }));
       renderParticipants();
       renderExpenseForm();
       renderExpenses();
@@ -512,10 +512,40 @@ function getSplitType() {
   return document.querySelector('input[name="splitType"]:checked').value;
 }
 
+// Кто и сколько заплатил. Старые расходы хранят одного плательщика в поле payer.
+function getPayments(e) {
+  return e.payments || (e.payer ? { [e.payer]: e.amount } : {});
+}
+
+function updatePayerMode() {
+  const rows = [...document.querySelectorAll('#expPayers .split-row')];
+  const checked = rows.filter(row => row.querySelector('.payerCheckbox').checked);
+  const amount = parseFloat(document.getElementById('expAmount').value);
+  const equalShare = amount > 0 && checked.length ? (amount / checked.length).toFixed(2) : 'поровну';
+  rows.forEach(row => {
+    const input = row.querySelector('.payer-amount');
+    const show = checked.length > 1 && row.querySelector('.payerCheckbox').checked;
+    input.classList.toggle('hidden', !show);
+    input.placeholder = equalShare;
+    if (!show) input.value = '';
+  });
+  document.getElementById('payerError').classList.add('hidden');
+}
+
+document.getElementById('expPayers').addEventListener('change', updatePayerMode);
+document.getElementById('expAmount').addEventListener('input', updatePayerMode);
+
 function renderExpenseForm() {
   const people = store.participants;
-  const payerSel = document.getElementById('expPayer');
-  payerSel.innerHTML = people.map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('');
+  const payersDiv = document.getElementById('expPayers');
+  payersDiv.innerHTML = people.map((p, i) => `
+    <label class="split-row">
+      <input type="checkbox" class="payerCheckbox" value="${escapeHtml(p)}"${i === 0 ? ' checked' : ''}>
+      ${avatarHtml(p, 'sm')}
+      <span class="split-name">${escapeHtml(p)}</span>
+      <input type="number" step="1" min="0" placeholder="поровну" class="payer-amount hidden">
+    </label>`).join('') || '<p class="empty">Сначала добавьте участников на вкладке «Участники».</p>';
+  updatePayerMode();
 
   const splitDiv = document.getElementById('expSplit');
   splitDiv.innerHTML = people.map(p => `
@@ -541,12 +571,17 @@ function renderExpenses() {
   const list = document.getElementById('expenseList');
   const expenses = store.expenses;
   document.getElementById('expenseCount').textContent = expenses.length;
-  list.innerHTML = expenses.map((e, i) => `
+  list.innerHTML = expenses.map((e, i) => {
+    const payments = Object.entries(getPayments(e));
+    const paidBy = payments.length > 1
+      ? 'Оплатили ' + payments.map(([n, a]) => `${escapeHtml(n)} ($${a.toFixed(2)})`).join(', ')
+      : 'Оплатил(а) ' + escapeHtml(payments[0] ? payments[0][0] : '—');
+    return `
     <li class="list-item">
-      ${avatarHtml(e.payer)}
+      ${avatarHtml(payments[0] ? payments[0][0] : '?')}
       <div class="item-body">
         <div class="item-title">${escapeHtml(e.description)}</div>
-        <div class="item-meta">Оплатил(а) ${escapeHtml(e.payer)} · делят: ${
+        <div class="item-meta">${paidBy} · делят: ${
           e.customAmounts
             ? e.split.map(p => `${escapeHtml(p)} ($${e.customAmounts[p].toFixed(2)})`).join(', ')
             : e.split.map(escapeHtml).join(', ')
@@ -556,7 +591,8 @@ function renderExpenses() {
       <button data-idx="${i}" class="icon-btn removeExpense" aria-label="Удалить расход">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
       </button>
-    </li>`).join('') || '<li class="empty">Пока нет расходов. Добавьте первый выше.</li>';
+    </li>`;
+  }).join('') || '<li class="empty">Пока нет расходов. Добавьте первый выше.</li>';
 
   list.querySelectorAll('.removeExpense').forEach(btn => {
     btn.onclick = () => {
@@ -579,7 +615,7 @@ function computeBalances() {
       const share = e.amount / e.split.length;
       e.split.forEach(p => { if (p in balances) balances[p] -= share; });
     }
-    if (e.payer in balances) balances[e.payer] += e.amount;
+    Object.entries(getPayments(e)).forEach(([p, a]) => { if (p in balances) balances[p] += a; });
   });
   return balances;
 }
@@ -678,15 +714,50 @@ document.getElementById('participantForm').addEventListener('submit', e => {
 document.getElementById('expenseForm').addEventListener('submit', e => {
   e.preventDefault();
   const description = document.getElementById('expDescription').value.trim();
-  const payer = document.getElementById('expPayer').value;
   const amount = parseFloat(document.getElementById('expAmount').value);
   const errorEl = document.getElementById('splitError');
+  const payerErrorEl = document.getElementById('payerError');
   errorEl.classList.add('hidden');
+  payerErrorEl.classList.add('hidden');
+
+  const payerRows = [...document.querySelectorAll('#expPayers .split-row')]
+    .filter(row => row.querySelector('.payerCheckbox').checked);
+  const showPayerError = msg => { payerErrorEl.textContent = msg; payerErrorEl.classList.remove('hidden'); };
+  if (payerRows.length === 0) { showPayerError('Выберите, кто платил.'); return; }
 
   const rows = [...document.querySelectorAll('#expSplit .split-row')];
   const checked = rows.filter(row => row.querySelector('.splitCheckbox').checked);
   const split = checked.map(row => row.querySelector('.splitCheckbox').value);
-  if (!description || !payer || !amount || amount <= 0 || split.length === 0) return;
+  if (!description || !amount || amount <= 0 || split.length === 0) return;
+
+  const payments = {};
+  if (payerRows.length === 1) {
+    payments[payerRows[0].querySelector('.payerCheckbox').value] = amount;
+  } else {
+    const typed = payerRows.map(row => row.querySelector('.payer-amount').value.trim());
+    if (typed.every(v => v === '')) {
+      // Никто не ввёл сумму — платили поровну (остаток копеек уходит последнему).
+      const base = Math.floor(amount / payerRows.length * 100) / 100;
+      payerRows.forEach((row, i) => {
+        const isLast = i === payerRows.length - 1;
+        payments[row.querySelector('.payerCheckbox').value] =
+          isLast ? Math.round((amount - base * (payerRows.length - 1)) * 100) / 100 : base;
+      });
+    } else {
+      let paidSum = 0;
+      for (const row of payerRows) {
+        const name = row.querySelector('.payerCheckbox').value;
+        const val = parseFloat(row.querySelector('.payer-amount').value);
+        if (!val || val <= 0) { showPayerError(`Введите, сколько заплатил(а) ${name}.`); return; }
+        payments[name] = val;
+        paidSum += val;
+      }
+      if (Math.abs(paidSum - amount) > 0.01) {
+        showPayerError(`Сумма оплат (${paidSum.toFixed(2)}) не совпадает с суммой расхода (${amount.toFixed(2)}).`);
+        return;
+      }
+    }
+  }
 
   let customAmounts = null;
   if (getSplitType() === 'custom') {
@@ -711,7 +782,7 @@ document.getElementById('expenseForm').addEventListener('submit', e => {
   }
 
   const arr = store.expenses;
-  arr.push(customAmounts ? { description, payer, amount, split, customAmounts } : { description, payer, amount, split });
+  arr.push(customAmounts ? { description, payments, amount, split, customAmounts } : { description, payments, amount, split });
   store.expenses = arr;
 
   e.target.reset();
