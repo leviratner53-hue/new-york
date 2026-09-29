@@ -137,6 +137,39 @@
     text-align: center;
   }
 
+  .trip-card {
+    margin-top: auto;
+    display: flex; flex-direction: column; gap: 0.5rem;
+    padding: 0.85rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    font-size: 0.82rem;
+  }
+  .trip-title { font-weight: 600; font-size: 0.88rem; }
+  .trip-status { color: var(--text-muted); }
+  .trip-status.error { color: var(--owe-strong); }
+  .trip-link {
+    width: 100%; min-width: 0;
+    background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+    padding: 0.35rem 0.5rem; font-size: 0.75rem;
+  }
+  .trip-btn {
+    background: var(--accent-soft); color: var(--accent-strong);
+    border: none; border-radius: var(--radius-sm);
+    padding: 0.5rem 0.7rem; font-size: 0.82rem; font-weight: 600; cursor: pointer;
+  }
+  .trip-btn:hover { background: var(--accent); color: #ffffff; }
+  .trip-btn.plain { background: none; color: var(--text-muted); font-weight: 500; }
+  .trip-btn.plain:hover { background: var(--surface-2); color: var(--text); }
+  .trip-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  .me-badge {
+    font-size: 0.72rem; font-weight: 600;
+    background: var(--accent-soft); color: var(--accent-strong);
+    padding: 0.15rem 0.5rem; border-radius: 999px;
+  }
+
   .nav { display: flex; flex-direction: column; gap: 0.25rem; }
   .nav-item {
     display: flex; align-items: center; gap: 0.65rem;
@@ -363,6 +396,7 @@
         Расчёт
       </button>
     </nav>
+    <div class="trip-card" id="tripCard"></div>
   </aside>
 
   <main class="main">
@@ -443,12 +477,260 @@
 <footer class="site-footer">Levi project</footer>
 
 <script>
+// ---- Хранение и общая поездка ----
+// Без ссылки данные лежат только в этом браузере. Общая поездка хранится в
+// jsonblob.com (без регистрации): у поездки есть id, он же в ссылке ?trip=<id>.
+// Правки разных людей сливаются по id расходов и именам участников.
+const API = 'https://jsonblob.com/api/jsonBlob';
+const SYNC_INTERVAL_MS = 5000;
+const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+const clone = v => JSON.parse(JSON.stringify(v));
+
+let tripId = null;                                 // null — данные только на этом устройстве
+let state = { participants: [], expenses: [] };
+let base = { participants: [], expenses: [] };     // последнее состояние, совпавшее с сервером
+let me = null;                                     // «кто я» на этом устройстве
+let localVersion = 0;                              // растёт при каждой правке на этом устройстве
+
 const store = {
-  get participants() { return JSON.parse(localStorage.getItem('participants') || '[]'); },
-  set participants(v) { localStorage.setItem('participants', JSON.stringify(v)); },
-  get expenses() { return JSON.parse(localStorage.getItem('expenses') || '[]'); },
-  set expenses(v) { localStorage.setItem('expenses', JSON.stringify(v)); }
+  get participants() { return state.participants; },
+  set participants(v) { state.participants = v; onLocalChange(); },
+  get expenses() { return state.expenses; },
+  set expenses(v) { state.expenses = v; onLocalChange(); }
 };
+
+// Данные с сервера может изменить любой, у кого есть ссылка: приводим к ожидаемому виду.
+function normalize(d) {
+  const str = v => (typeof v === 'string' ? v.trim() : '');
+  const num = v => (typeof v === 'number' && isFinite(v) && v >= 0 ? v : null);
+  d = d && typeof d === 'object' ? d : {};
+  const participants = [...new Set((Array.isArray(d.participants) ? d.participants : []).map(str).filter(Boolean))];
+  const expenses = [];
+  const seen = new Set();
+  for (const e of Array.isArray(d.expenses) ? d.expenses : []) {
+    if (!e || typeof e !== 'object') continue;
+    const amount = num(e.amount);
+    const description = str(e.description);
+    const split = Array.isArray(e.split) ? e.split.map(str).filter(Boolean) : [];
+    const payments = {};
+    if (e.payments && typeof e.payments === 'object') {
+      for (const [k, v] of Object.entries(e.payments)) if (str(k) && num(v) !== null) payments[str(k)] = v;
+    } else if (str(e.payer) && amount !== null) {
+      payments[str(e.payer)] = amount;
+    }
+    if (!description || !amount || !split.length || !Object.keys(payments).length) continue;
+    const id = str(e.id) || uid();
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const out = { id, description, payments, amount, split };
+    if (e.customAmounts && typeof e.customAmounts === 'object') {
+      const custom = {};
+      for (const p of split) custom[p] = num(e.customAmounts[p]) || 0;
+      out.customAmounts = custom;
+    }
+    expenses.push(out);
+  }
+  return { participants, expenses };
+}
+
+// Трёхстороннее слияние: base — что было на сервере при последней синхронизации,
+// local — что у меня сейчас, remote — что на сервере сейчас.
+function mergeList(baseList, localList, remoteList, key) {
+  const baseKeys = new Set(baseList.map(key));
+  const localKeys = new Set(localList.map(key));
+  const remoteKeys = new Set(remoteList.map(key));
+  const removed = new Set([...baseKeys].filter(k => !localKeys.has(k)));
+  const added = localList.filter(x => !baseKeys.has(key(x)) && !remoteKeys.has(key(x)));
+  return remoteList.filter(x => !removed.has(key(x))).concat(added);
+}
+function mergeState(b, l, r) {
+  return {
+    participants: mergeList(b.participants, l.participants, r.participants, x => x),
+    expenses: mergeList(b.expenses, l.expenses, r.expenses, x => x.id)
+  };
+}
+
+// ---- Локальное сохранение ----
+function saveLocal() {
+  try {
+    if (tripId) localStorage.setItem('trip:' + tripId, JSON.stringify({ state, base }));
+    else {
+      localStorage.setItem('participants', JSON.stringify(state.participants));
+      localStorage.setItem('expenses', JSON.stringify(state.expenses));
+    }
+  } catch (e) { /* хранилище недоступно — работаем в памяти */ }
+}
+function loadLocal() {
+  const read = k => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } };
+  if (tripId) {
+    const cached = read('trip:' + tripId);
+    state = normalize(cached && cached.state);
+    base = normalize(cached && cached.base);
+  } else {
+    state = normalize({ participants: read('participants'), expenses: read('expenses') });
+    base = { participants: [], expenses: [] };
+  }
+  me = localStorage.getItem('me:' + (tripId || 'local'));
+}
+
+function onLocalChange() {
+  localVersion++;
+  saveLocal();
+  scheduleSync();
+}
+
+// ---- Синхронизация ----
+let syncing = false, syncAgain = false, syncTimer = null;
+
+function setStatus(text, isError) {
+  const el = document.getElementById('tripStatus');
+  if (!el) return;
+  el.textContent = text;
+  el.classList.toggle('error', !!isError);
+}
+
+function scheduleSync() {
+  if (!tripId) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(sync, 300);
+}
+
+async function sync() {
+  if (!tripId) return;
+  if (syncing) { syncAgain = true; return; }
+  syncing = true;
+  const id = tripId;
+  const versionAtStart = localVersion;
+  try {
+    const res = await fetch(`${API}/${id}`, { headers: { Accept: 'application/json' } });
+    if (res.status === 404) throw new Error('Поездка не найдена. Проверьте ссылку.');
+    if (!res.ok) throw new Error('Сервер не отвечает.');
+    const remote = normalize(await res.json());
+    const merged = mergeState(base, state, remote);
+    if (JSON.stringify(merged) !== JSON.stringify(remote)) {
+      const put = await fetch(`${API}/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify(merged)
+      });
+      if (!put.ok) throw new Error('Не удалось сохранить изменения.');
+    }
+    if (id !== tripId) return;
+    base = clone(merged);
+    // Если за время запроса на этом устройстве что-то изменили, не затираем это:
+    // следующая синхронизация сольёт всё заново.
+    if (localVersion === versionAtStart) applyState(merged);
+    else saveLocal();
+    setStatus('Синхронизировано ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+  } catch (err) {
+    if (id === tripId) setStatus(err instanceof TypeError ? 'Нет связи. Данные сохранены на устройстве.' : err.message, true);
+  } finally {
+    syncing = false;
+    if (syncAgain) { syncAgain = false; scheduleSync(); }
+  }
+}
+
+function applyState(next) {
+  if (JSON.stringify(next) === JSON.stringify(state)) { saveLocal(); return; }
+  const peopleChanged = JSON.stringify(next.participants) !== JSON.stringify(state.participants);
+  state = clone(next);
+  saveLocal();
+  renderAll(peopleChanged);
+}
+
+function renderAll(peopleChanged = true) {
+  renderParticipants();
+  if (peopleChanged) renderExpenseForm();
+  renderExpenses();
+  if (!document.getElementById('viewSettle').classList.contains('hidden')) renderSettle();
+}
+
+setInterval(() => { if (!document.hidden) sync(); }, SYNC_INTERVAL_MS);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) sync(); });
+
+// ---- Панель поездки ----
+function tripUrl(id) {
+  const u = new URL(location.href);
+  u.search = '';
+  u.hash = '';
+  if (id) u.searchParams.set('trip', id);
+  return u.toString();
+}
+
+function renderTrip() {
+  const card = document.getElementById('tripCard');
+  if (!tripId) {
+    card.innerHTML = `
+      <div class="trip-title">Только на этом устройстве</div>
+      <div class="trip-status" id="tripStatus">Чтобы другие добавляли расходы, поделитесь поездкой.</div>
+      <button class="trip-btn" id="tripShare">Сделать поездку общей</button>`;
+    document.getElementById('tripShare').onclick = shareTrip;
+    return;
+  }
+  card.innerHTML = `
+    <div class="trip-title">Общая поездка</div>
+    <div class="trip-status" id="tripStatus">Синхронизация…</div>
+    <input class="trip-link" id="tripLink" readonly value="${escapeHtml(tripUrl(tripId))}" aria-label="Ссылка на поездку">
+    <button class="trip-btn" id="tripCopy">Скопировать ссылку</button>
+    <button class="trip-btn plain" id="tripLeave">Выйти из поездки</button>`;
+  document.getElementById('tripLink').onclick = e => e.target.select();
+  document.getElementById('tripCopy').onclick = async () => {
+    const link = tripUrl(tripId);
+    try { await navigator.clipboard.writeText(link); setStatus('Ссылка скопирована'); }
+    catch (e) { document.getElementById('tripLink').select(); setStatus('Скопируйте ссылку вручную'); }
+  };
+  document.getElementById('tripLeave').onclick = leaveTrip;
+}
+
+async function shareTrip() {
+  const btn = document.getElementById('tripShare');
+  btn.disabled = true;
+  setStatus('Создаём поездку…');
+  try {
+    const res = await fetch(API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(state)
+    });
+    const loc = res.headers.get('Location') || res.headers.get('X-jsonblob') || '';
+    const id = loc.split('/').pop();
+    if (!res.ok || !/^[\w-]+$/.test(id)) throw new Error('bad');
+    const myName = me;
+    tripId = id;
+    base = clone(state);
+    if (myName) localStorage.setItem('me:' + id, myName);
+    localStorage.setItem('tripId', id);
+    history.replaceState(null, '', tripUrl(id));
+    saveLocal();
+    renderTrip();
+    setStatus('Готово. Отправьте ссылку друзьям.');
+  } catch (err) {
+    btn.disabled = false;
+    setStatus('Не удалось создать поездку. Проверьте интернет и попробуйте ещё раз.', true);
+  }
+}
+
+function leaveTrip() {
+  if (!confirm('Выйти из общей поездки? На этом устройстве останется копия данных.')) return;
+  clearTimeout(syncTimer);
+  const myName = me;
+  tripId = null;
+  localStorage.removeItem('tripId');
+  history.replaceState(null, '', tripUrl(null));
+  base = { participants: [], expenses: [] };
+  me = myName;
+  if (myName) localStorage.setItem('me:local', myName);
+  saveLocal();
+  renderTrip();
+  renderAll();
+}
+
+function setMe(name) {
+  me = name;
+  try { localStorage.setItem('me:' + (tripId || 'local'), name); } catch (e) { /* не критично */ }
+  renderParticipants();
+  renderExpenseForm();
+}
 
 const AVATAR_VARS = ['--avatar-1', '--avatar-2', '--avatar-3', '--avatar-4', '--avatar-5', '--avatar-6'];
 
@@ -488,10 +770,13 @@ function renderParticipants() {
     <li class="list-item">
       ${avatarHtml(p)}
       <div class="item-body"><div class="item-title">${escapeHtml(p)}</div></div>
+      ${p === me ? '<span class="me-badge">Это вы</span>' : `<button data-name="${escapeHtml(p)}" class="trip-btn plain setMe">Это я</button>`}
       <button data-idx="${i}" class="icon-btn removeParticipant" aria-label="Удалить ${escapeHtml(p)}">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
       </button>
     </li>`).join('') || '<li class="empty">Пока нет участников. Добавьте первого выше.</li>';
+
+  list.querySelectorAll('.setMe').forEach(btn => { btn.onclick = () => setMe(btn.dataset.name); });
 
   list.querySelectorAll('.removeParticipant').forEach(btn => {
     btn.onclick = () => {
@@ -538,9 +823,10 @@ document.getElementById('expAmount').addEventListener('input', updatePayerMode);
 function renderExpenseForm() {
   const people = store.participants;
   const payersDiv = document.getElementById('expPayers');
-  payersDiv.innerHTML = people.map((p, i) => `
+  const defaultPayer = people.includes(me) ? me : people[0];
+  payersDiv.innerHTML = people.map(p => `
     <label class="split-row">
-      <input type="checkbox" class="payerCheckbox" value="${escapeHtml(p)}"${i === 0 ? ' checked' : ''}>
+      <input type="checkbox" class="payerCheckbox" value="${escapeHtml(p)}"${p === defaultPayer ? ' checked' : ''}>
       ${avatarHtml(p, 'sm')}
       <span class="split-name">${escapeHtml(p)}</span>
       <input type="number" step="1" min="0" placeholder="поровну" class="payer-amount hidden">
@@ -782,7 +1068,9 @@ document.getElementById('expenseForm').addEventListener('submit', e => {
   }
 
   const arr = store.expenses;
-  arr.push(customAmounts ? { description, payments, amount, split, customAmounts } : { description, payments, amount, split });
+  const expense = { id: uid(), description, payments, amount, split };
+  if (customAmounts) expense.customAmounts = customAmounts;
+  arr.push(expense);
   store.expenses = arr;
 
   e.target.reset();
@@ -790,10 +1078,21 @@ document.getElementById('expenseForm').addEventListener('submit', e => {
   renderExpenses();
 });
 
-renderParticipants();
-renderExpenseForm();
-renderExpenses();
-showTab('expenses');
+function init() {
+  const fromUrl = new URLSearchParams(location.search).get('trip');
+  const candidate = fromUrl || localStorage.getItem('tripId');
+  tripId = candidate && /^[\w-]+$/.test(candidate) ? candidate : null;
+  if (tripId) localStorage.setItem('tripId', tripId);
+  loadLocal();
+  saveLocal();
+  renderTrip();
+  renderParticipants();
+  renderExpenseForm();
+  renderExpenses();
+  showTab('expenses');
+  sync();
+}
+init();
 </script>
 </body>
 </html>
