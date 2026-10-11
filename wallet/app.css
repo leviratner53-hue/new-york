@@ -318,3 +318,32 @@ button.field .v { color: var(--muted); display: flex; align-items: center; gap: 
   .donut-wrap { grid-template-columns: 1fr; justify-items: center; }
   .legend { width: 100%; }
 }
+
+/* Блок «Траты» в стиле банковского приложения */
+.spend { margin: 4px 0 8px; }
+.spend-head { display: flex; justify-content: space-between; align-items: flex-start; }
+.spend-total { font-size: 40px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; }
+.spend-kind { font-size: 17px; color: var(--text); margin-top: 2px; }
+.spend-kind span { color: var(--muted); font-size: 14px; }
+.spend-chart { margin: 6px auto 10px; max-width: 320px; }
+.spend-chart .chart { margin-top: 8px; }
+.ring { width: 100%; height: auto; overflow: visible; }
+.ring .pct { fill: var(--muted); font-size: 13px; font-family: var(--font); font-variant-numeric: tabular-nums; }
+.spend-ctrl { display: flex; gap: 10px; margin-bottom: 14px; }
+.spend-ctrl .seg { margin: 0; border-radius: 999px; padding: 4px; }
+.spend-ctrl .seg button { border-radius: 999px; height: 36px; }
+.spend-seg { flex: 1; }
+.spend-view { flex: none; grid-auto-columns: 48px; }
+.spend-view button { display: grid; place-items: center; }
+.spend-view svg { width: 20px; height: 20px; }
+.cchips { display: flex; flex-wrap: wrap; gap: 8px; }
+.cchip {
+  display: inline-flex; align-items: center; gap: 8px; max-width: 100%;
+  padding: 4px 14px 4px 4px; border-radius: 999px;
+  background: color-mix(in srgb, var(--c) 18%, var(--card)); font-size: 15px;
+  border: 1.5px solid transparent;
+}
+.cchip[aria-pressed="true"] { border-color: var(--c); background: color-mix(in srgb, var(--c) 32%, var(--card)); }
+.cchip .ci { flex: none; width: 30px; height: 30px; border-radius: 50%; background: var(--c); display: grid; place-items: center; font-size: 15px; }
+.cchip .cn { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; max-width: 140px; }
+.cchip b { font-weight: 700; white-space: nowrap; }

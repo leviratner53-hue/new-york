@@ -65,6 +65,7 @@ function normalize(s) {
     tx: Array.isArray(s.tx) ? s.tx : [],
     budgets: s.budgets && typeof s.budgets === 'object' ? s.budgets : {},
     subs: Array.isArray(s.subs) ? s.subs : [],
+    deleted: s.deleted && typeof s.deleted === 'object' ? s.deleted : {},
     ui: Object.assign({ theme: 'auto', hide: false }, s.ui)
   };
 }
@@ -79,9 +80,14 @@ function load() {
 
 let state = load();
 
-function save() {
+function saveLocal() {
   try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); }
   catch (e) { toast('Не удалось сохранить данные'); }
+}
+// Сохранение после действия пользователя: на устройство и на сервер, если включена синхронизация.
+function save() {
+  saveLocal();
+  scheduleSync();
 }
 
 /* ================= Деньги и даты ================= */
@@ -146,24 +152,46 @@ function relDays(d) {
 /* ================= Период ================= */
 
 const now = new Date();
-let period = { mode: 'month', y: now.getFullYear(), m: now.getMonth() };
+function mondayOf(d) { const x = new Date(d); x.setDate(x.getDate() - (x.getDay() + 6) % 7); return ymd(x); }
+function addDays(ds, n) { const d = parseDate(ds); d.setDate(d.getDate() + n); return ymd(d); }
+let period = { mode: 'month', y: now.getFullYear(), m: now.getMonth(), ws: mondayOf(now) };
 
 function range(p = period) {
+  if (p.mode === 'week') return { start: p.ws, end: addDays(p.ws, 6) };
   if (p.mode === 'year') return { start: `${p.y}-01-01`, end: `${p.y}-12-31` };
   const last = new Date(p.y, p.m + 1, 0).getDate();
   return { start: `${p.y}-${pad(p.m + 1)}-01`, end: `${p.y}-${pad(p.m + 1)}-${pad(last)}` };
 }
 function periodLabel() {
   if (period.mode === 'year') return `${period.y} год`;
+  if (period.mode === 'week') {
+    const a = parseDate(period.ws), b = parseDate(addDays(period.ws, 6));
+    const mon = d => MONTH_SHORT.format(d).replace('.', '');
+    return a.getMonth() === b.getMonth()
+      ? `${a.getDate()}–${b.getDate()} ${mon(b)}`
+      : `${a.getDate()} ${mon(a)} – ${b.getDate()} ${mon(b)}`;
+  }
   const name = cap(MONTH.format(new Date(period.y, period.m, 1)));
   return period.y === new Date().getFullYear() ? name : `${name} ${period.y}`;
 }
 function shiftPeriod(d) {
-  if (period.mode === 'year') period.y += d;
+  if (period.mode === 'week') {
+    period.ws = addDays(period.ws, 7 * d);
+    const a = parseDate(period.ws);
+    period.y = a.getFullYear(); period.m = a.getMonth();
+  } else if (period.mode === 'year') period.y += d;
   else {
     const dt = new Date(period.y, period.m + d, 1);
     period.y = dt.getFullYear(); period.m = dt.getMonth();
   }
+}
+// Смена «неделя / месяц / год»: опорная дата — сегодня, если оно в текущем периоде.
+function setMode(mode) {
+  if (mode === period.mode) return;
+  const { start, end } = range();
+  const t = today();
+  const a = parseDate(t >= start && t <= end ? t : start);
+  period = { mode, y: a.getFullYear(), m: a.getMonth(), ws: mondayOf(a) };
 }
 function isCurrentPeriod() { const { start, end } = range(); const t = today(); return t >= start && t <= end; }
 
@@ -214,8 +242,8 @@ function sortTx(list) {
 }
 
 /* Бюджеты: лимит на месяц, для года ×12 */
-function budgetMult() { return period.mode === 'year' ? 12 : 1; }
-function totalBudget() { return Object.values(state.budgets).reduce((s, v) => s + v, 0) * budgetMult(); }
+function budgetMult() { return period.mode === 'year' ? 12 : period.mode === 'week' ? 12 / 52 : 1; }
+function totalBudget() { return Math.round(Object.values(state.budgets).reduce((s, v) => s + v, 0) * budgetMult()); }
 
 /* Подписки и регулярные платежи */
 function addPeriod(dateStr, per, anchor) {
@@ -303,7 +331,7 @@ function periodBar() {
   return `
     <div class="period">
       <button class="icon-btn" data-action="period" data-d="-1" aria-label="Предыдущий период">${I.chevL}</button>
-      <button class="period-label" data-action="period-mode" aria-label="Сменить месяц или год">${periodLabel()}<small>${period.mode === 'month' ? 'месяц ⇅' : 'год ⇅'}</small></button>
+      <button class="period-label" data-action="period-mode" aria-label="Сменить месяц или год">${periodLabel()}<small>${{ week: 'неделя', month: 'месяц', year: 'год' }[period.mode]} ⇅</small></button>
       ${isCurrentPeriod() ? '' : '<button class="now" data-action="period-now">Сейчас</button>'}
       <button class="icon-btn" data-action="period" data-d="1" aria-label="Следующий период">${I.chevR}</button>
     </div>`;
@@ -488,6 +516,97 @@ function vOps() {
     <div id="ops-list"></div>`;
 }
 
+// Суммы по дням периода (для недели и месяца)
+function dayBuckets(list, kind) {
+  const { start, end } = range();
+  const out = [];
+  for (let ds = start, i = 0; ds <= end; ds = addDays(ds, 1), i++) {
+    const v = list.reduce((s, t) => s + (t.type === kind && t.date === ds ? t.amount : 0), 0);
+    const d = parseDate(ds);
+    const label = period.mode === 'week' ? WEEKDAY.format(d) : (d.getDate() === 1 || d.getDate() % 5 === 0 ? String(d.getDate()) : '');
+    out.push({ label, title: shortDate(ds), v, hl: ds <= today() });
+  }
+  return out;
+}
+
+// Кольцо с иконками категорий и процентами снаружи
+function ring(cats, total, sel) {
+  const R = 84, SW = 34, cx = 150, cy = 150, C = 2 * Math.PI * R;
+  const gap = cats.length > 1 ? 2.5 : 0;
+  let acc = 0;
+  const segs = [], icons = [], labels = [];
+  let lastLabel = -Infinity;
+  for (const x of cats) {
+    const frac = x.value / total, len = frac * C;
+    const dim = sel && sel !== x.id ? ' opacity="0.25"' : '';
+    segs.push(`<circle r="${R}" cx="${cx}" cy="${cy}" fill="none" stroke="${x.cat.color}" stroke-width="${SW}" stroke-dasharray="${Math.max(len - gap, 0.6).toFixed(2)} ${C.toFixed(2)}" stroke-dashoffset="${(-acc).toFixed(2)}" transform="rotate(-90 ${cx} ${cy})"${dim}/>`);
+    const a = ((acc + len / 2) / C) * 2 * Math.PI - Math.PI / 2;
+    const cos = Math.cos(a), sin = Math.sin(a);
+    if (frac >= 0.07) {
+      icons.push(`<g${dim}><circle cx="${(cx + R * cos).toFixed(1)}" cy="${(cy + R * sin).toFixed(1)}" r="14" fill="rgba(0,0,0,.18)"/><text x="${(cx + R * cos).toFixed(1)}" y="${(cy + R * sin + 5).toFixed(1)}" text-anchor="middle" font-size="15">${esc(x.cat.icon)}</text></g>`);
+    }
+    // подпись пропускаем, если она налезет на предыдущую
+    if (a - lastLabel > 0.32 && (frac >= 0.03 || cats.length <= 6)) {
+      lastLabel = a;
+      const lr = R + SW / 2 + 16;
+      const anchor = cos > 0.3 ? 'start' : cos < -0.3 ? 'end' : 'middle';
+      labels.push(`<text class="pct" x="${(cx + lr * cos).toFixed(1)}" y="${(cy + lr * sin + 4).toFixed(1)}" text-anchor="${anchor}"${dim}>${Math.max(1, Math.round(frac * 100))}%</text>`);
+    }
+    acc += len;
+  }
+  return `<svg class="ring" viewBox="0 0 300 300" role="img" aria-label="Доли категорий">
+    <defs><filter id="ring-glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="14"/></filter></defs>
+    <g filter="url(#ring-glow)" opacity="0.55">${segs.join('')}</g>
+    ${segs.join('')}${icons.join('')}${labels.join('')}
+  </svg>`;
+}
+
+function spendCard(list) {
+  const kind = state.ui.kind === 'income' ? 'income' : 'expense';
+  const cats = byCategory(list, kind);
+  const total = cats.reduce((s, x) => s + x.value, 0);
+  const selected = cats.find(x => x.id === filter.cat);
+  const shown = selected ? selected.value : total;
+  const chart = state.ui.chart === 'bars' ? 'bars' : 'ring';
+  const modes = [['week', 'Нед'], ['month', 'Мес'], ['year', 'Год']];
+  let body;
+  if (!total) body = `<div class="empty">${kind === 'income' ? 'Нет доходов' : 'Нет трат'} за этот период</div>`;
+  else if (chart === 'ring') body = ring(cats, total, filter.cat);
+  else {
+    const src = selected ? list.filter(t => t.categoryId === selected.id) : list;
+    let items;
+    if (period.mode === 'year') {
+      items = [];
+      for (let m = 0; m < 12; m++) {
+        const r = range({ mode: 'month', y: period.y, m });
+        items.push({ label: MONTH_SHORT.format(new Date(period.y, m, 1)).replace('.', ''), title: cap(MONTH.format(new Date(period.y, m, 1))), v: src.reduce((s, t) => s + (t.type === kind && t.date >= r.start && t.date <= r.end ? t.amount : 0), 0) });
+      }
+    } else items = dayBuckets(src, kind);
+    body = barChart(items, [{ key: 'v', color: selected ? selected.cat.color : (kind === 'income' ? '#22C55E' : '#3B82F6') }]);
+  }
+  return `
+    <section class="spend">
+      <div class="spend-head">
+        <div>
+          <div class="spend-total money">${fmt(shown, { short: true })}</div>
+          <button class="spend-kind" data-action="spend-kind">${selected ? esc(selected.cat.name) : (kind === 'income' ? 'Доходы' : 'Траты')} <span>⇅</span></button>
+        </div>
+      </div>
+      <div class="spend-chart">${body}</div>
+      <div class="spend-ctrl">
+        <div class="seg spend-seg">${modes.map(([m, n]) => `<button data-action="period-set" data-m="${m}" aria-pressed="${period.mode === m}">${n}</button>`).join('')}</div>
+        <div class="seg spend-view">
+          <button data-action="spend-view" data-v="ring" aria-pressed="${chart === 'ring'}" aria-label="Кольцо"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="12" cy="12" r="7"/></svg></button>
+          <button data-action="spend-view" data-v="bars" aria-pressed="${chart === 'bars'}" aria-label="Столбики">${I.chart}</button>
+        </div>
+      </div>
+      ${cats.length ? `<div class="cchips">${cats.map(x => `
+        <button class="cchip" style="--c:${x.cat.color}" data-action="f-cat" data-id="${x.id}" aria-pressed="${filter.cat === x.id}">
+          <span class="ci">${esc(x.cat.icon)}</span><span class="cn">${esc(x.cat.name)}</span><b class="money">${fmt(x.value, { short: true })}</b>
+        </button>`).join('')}</div>` : ''}
+    </section>`;
+}
+
 function drawOpsList() {
   const box = $('#ops-list');
   if (!box) return;
@@ -504,17 +623,13 @@ function drawOpsList() {
     list = txIn(start, end);
   }
   if (filter.acc) list = list.filter(t => t.accountId === filter.acc || t.toAccountId === filter.acc);
+  const chartHtml = q ? '' : spendCard(list);
   if (filter.cat) list = list.filter(t => t.categoryId === filter.cat);
   list = sortTx(list);
 
-  if (!list.length) { box.innerHTML = `<div class="empty">${q ? 'Ничего не найдено' : 'Нет записей за этот период'}</div>`; return; }
+  if (!list.length) { box.innerHTML = chartHtml + `<div class="empty">${q ? 'Ничего не найдено' : 'Нет записей за этот период'}</div>`; return; }
 
-  const tot = totals(list);
-  let html = `<section class="card"><div class="trio">
-      <div><div class="label">Доходы</div><div class="v pos money">${fmt(tot.inc, { short: true })}</div></div>
-      <div><div class="label">Расходы</div><div class="v neg money">${fmt(tot.exp, { short: true })}</div></div>
-      <div><div class="label">Записей</div><div class="v">${list.length}</div></div>
-    </div></section>`;
+  let html = chartHtml;
   let i = 0;
   while (i < list.length) {
     const d = list[i].date;
@@ -560,7 +675,7 @@ function vBudgets() {
   if (budget > 0 && unbudgeted > 0) segs.push({ color: '#64748B', frac: unbudgeted / budget });
 
   const row = c => {
-    const b = (state.budgets[c.id] || 0) * mult;
+    const b = Math.round((state.budgets[c.id] || 0) * mult);
     const s = spentBy.get(c.id) || 0;
     const over = b && s > b;
     return `<button class="brow" data-action="edit-budget" data-id="${c.id}">
@@ -728,20 +843,14 @@ function vStats() {
 
   // Динамика расходов
   let dynItems;
-  if (period.mode === 'month') {
-    const last = parseDate(end).getDate();
-    dynItems = [];
-    for (let d = 1; d <= last; d++) {
-      const ds = `${period.y}-${pad(period.m + 1)}-${pad(d)}`;
-      const exp = totals(list.filter(t => t.date === ds)).exp;
-      dynItems.push({ label: d === 1 || d % 5 === 0 ? String(d) : '', title: shortDate(ds), exp, hl: ds <= today() });
-    }
+  if (period.mode !== 'year') {
+    dynItems = dayBuckets(list, 'expense').map(x => ({ ...x, exp: x.v }));
   } else {
     dynItems = ivItems.map(x => ({ label: x.label, title: x.title, exp: x.exp }));
   }
   const dynCard = `
     <section class="card">
-      <div class="card-head"><h3>${period.mode === 'month' ? 'Расходы по дням' : 'Расходы по месяцам'}</h3></div>
+      <div class="card-head"><h3>${period.mode === 'year' ? 'Расходы по месяцам' : 'Расходы по дням'}</h3></div>
       ${barChart(dynItems, [{ key: 'exp', color: '#3B82F6' }])}
     </section>`;
 
@@ -779,7 +888,9 @@ function closeSheet() {
   root.setAttribute('aria-hidden', 'true');
   document.body.classList.remove('locked');
   setTimeout(() => { if (!root.classList.contains('open')) root.innerHTML = ''; }, 260);
+  if (syncPending) scheduleSync();
 }
+const sheetOpen = () => $('#sheet').classList.contains('open');
 const head = (title, submit = 'Готово') => `
   <div class="sheet-head">
     <button type="button" class="link" data-action="close">Отмена</button>
@@ -1016,6 +1127,7 @@ function openSettings() {
   const opt = (list, sel) => list.map(([v, n]) => `<option value="${esc(v)}" ${v === sel ? 'selected' : ''}>${esc(n)}</option>`).join('');
   const p = openSheet(`
     <div class="sheet-head"><span></span><h2>Настройки</h2><button type="button" class="link strong" data-action="close">Готово</button></div>
+    ${syncSection()}
     <div class="sect">Счета</div>
     <div class="group">
       ${state.accounts.map(a => `<button type="button" class="field" data-action="edit-acc" data-id="${a.id}"><span>${esc(a.icon)} ${esc(a.name)}</span><span class="v money">${fmt(balance(a.id))} ›</span></button>`).join('')}
@@ -1027,7 +1139,7 @@ function openSettings() {
       <label class="field"><span>Тема</span><select id="s-theme">${opt([['auto', 'Как в системе'], ['dark', 'Тёмная'], ['light', 'Светлая']], state.ui.theme)}</select></label>
     </div>
     <div class="sect">Данные</div>
-    <p class="hint" style="margin-top:0">Данные хранятся только на этом устройстве. Регулярно делайте резервную копию.</p>
+    <p class="hint" style="margin-top:0">${sync ? 'Копия данных есть на каждом подключённом устройстве. Резервная копия файлом — на всякий случай.' : 'Данные хранятся только на этом устройстве. Регулярно делайте резервную копию.'}</p>
     <button type="button" class="btn ghost" data-action="export">Сохранить резервную копию (JSON)</button>
     <button type="button" class="btn ghost" data-action="export-csv">Выгрузить операции в CSV</button>
     <label class="btn ghost" style="display:grid;place-items:center">Восстановить из копии<input type="file" id="imp" accept="application/json,.json" hidden></label>
@@ -1138,6 +1250,7 @@ function exportCSV() {
 }
 
 function loadDemo() {
+  if (sync) { toast('Сначала отключите синхронизацию'); return; }
   if (state.tx.length && !confirm('Демо-данные заменят текущие. Продолжить?')) return;
   const s = defaults();
   const [cash, card] = s.accounts;
@@ -1177,6 +1290,291 @@ function loadDemo() {
   commit('Демо-данные загружены');
 }
 
+/* ================= Синхронизация ================= */
+// Общие данные лежат на jsonblob.com (без регистрации), зашифрованные AES-GCM.
+// Ключ есть только в коде синхронизации на устройствах, сервер видит лишь шифр.
+// Слияние трёхстороннее: base — последнее общее состояние, поэтому удаления и правки
+// с разных устройств не затирают друг друга.
+
+const SYNC_API = 'https://jsonblob.com/api/jsonBlob';
+const SYNC_KEY = 'wallet:sync';
+const BASE_KEY = 'wallet:base';
+const SYNC_EVERY_MS = 30000;
+
+function readJSON(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } }
+function writeJSON(k, v) { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* не критично */ } }
+
+let sync = readJSON(SYNC_KEY);        // { id, key }
+let base = readJSON(BASE_KEY);
+let syncState = { text: '', err: false };
+let syncing = false, syncPending = false, syncTimer = null, syncManual = false;
+
+const clone = v => JSON.parse(JSON.stringify(v));
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const shared = s => clone({ currency: s.currency, accounts: s.accounts, categories: s.categories, tx: s.tx, budgets: s.budgets, subs: s.subs, deleted: s.deleted || {} });
+const syncCode = () => sync ? `${sync.id}.${sync.key}` : '';
+const syncLink = () => { const u = new URL(location.href); u.search = ''; u.hash = 'sync=' + syncCode(); return u.toString(); };
+
+function bytesToB64(bytes) {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function b64ToBytes(s) {
+  s = s.replace(/-/g, '+').replace(/_/g, '/');
+  while (s.length % 4) s += '=';
+  const bin = atob(s);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+const pipeBytes = async (bytes, stream) => new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(stream)).arrayBuffer());
+const aesKey = k => crypto.subtle.importKey('raw', b64ToBytes(k), 'AES-GCM', false, ['encrypt', 'decrypt']);
+
+async function seal(data, key) {
+  let bytes = new TextEncoder().encode(JSON.stringify(data));
+  const z = typeof CompressionStream === 'function';
+  if (z) bytes = await pipeBytes(bytes, new CompressionStream('gzip'));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await aesKey(key), bytes));
+  return { app: 'wallet', v: 1, z: z ? 1 : 0, iv: bytesToB64(iv), data: bytesToB64(ct) };
+}
+async function unseal(payload, key) {
+  if (!payload || payload.app !== 'wallet' || !payload.data) throw new Error('По этому коду нет данных Кошелька');
+  let bytes;
+  try {
+    bytes = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64ToBytes(payload.iv) }, await aesKey(key), b64ToBytes(payload.data)));
+  } catch (e) { throw new Error('Неверный код синхронизации'); }
+  if (payload.z) {
+    if (typeof DecompressionStream !== 'function') throw new Error('Обновите браузер, чтобы синхронизация работала');
+    bytes = await pipeBytes(bytes, new DecompressionStream('gzip'));
+  }
+  return normalize(JSON.parse(new TextDecoder().decode(bytes)));
+}
+
+// Удаления хранятся явно (deleted: id → 1). Отсутствие записи на сервере ничего не значит:
+// если два устройства записали одновременно и одно затёрло другое, записи вернутся.
+function mergeList(b = [], l = [], r = [], del) {
+  const B = new Map(b.map(x => [x.id, x])), L = new Map(l.map(x => [x.id, x])), R = new Map(r.map(x => [x.id, x]));
+  for (const id of B.keys()) if (!L.has(id)) del[id] = 1;   // удалено на этом устройстве
+  const out = [];
+  for (const id of new Set([...R.keys(), ...L.keys()])) {
+    if (del[id]) continue;
+    const bx = B.get(id), lx = L.get(id), rx = R.get(id);
+    if (!lx || !rx) { out.push(lx || rx); continue; }
+    out.push(bx && same(lx, bx) ? rx : lx);          // изменено: берём ту сторону, где правили
+  }
+  return out;
+}
+function mergeMap(b = {}, l = {}, r = {}) {
+  const out = {};
+  for (const k of new Set([...Object.keys(r), ...Object.keys(l)])) {
+    const inB = k in b, inL = k in l, inR = k in r;
+    if (inB && (!inL || !inR)) continue;
+    if (!inB) { out[k] = inL ? l[k] : r[k]; continue; }
+    out[k] = l[k] === b[k] ? r[k] : l[k];
+  }
+  return out;
+}
+function mergeData(b, l, r) {
+  const del = Object.assign({}, r.deleted, l.deleted);
+  return {
+    currency: l.currency !== b.currency ? l.currency : r.currency,
+    accounts: mergeList(b.accounts, l.accounts, r.accounts, del),
+    categories: mergeList(b.categories, l.categories, r.categories, del),
+    tx: mergeList(b.tx, l.tx, r.tx, del),
+    budgets: mergeMap(b.budgets, l.budgets, r.budgets),
+    subs: mergeList(b.subs, l.subs, r.subs, del),
+    deleted: del
+  };
+}
+
+function setSync(text, err = false) {
+  syncState = { text, err };
+  const el = $('#sync-status');
+  if (el) { el.textContent = text; el.classList.toggle('neg', err); }
+  if (syncManual && !syncing) { syncManual = false; toast(text); }
+}
+
+function scheduleSync(delay = 800) {
+  if (!sync) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(runSync, delay);
+}
+
+async function fetchRemote(cfg) {
+  const res = await fetch(`${SYNC_API}/${encodeURIComponent(cfg.id)}`, { headers: { Accept: 'application/json' }, cache: 'no-store' });
+  if (res.status === 404) throw new Error('Общие данные не найдены. Проверьте код.');
+  if (!res.ok) throw new Error('Сервер синхронизации не отвечает');
+  return unseal(await res.json(), cfg.key);
+}
+async function pushRemote(cfg, data) {
+  const res = await fetch(`${SYNC_API}/${encodeURIComponent(cfg.id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(await seal(data, cfg.key))
+  });
+  if (!res.ok) throw new Error('Не удалось сохранить на сервер');
+}
+const syncError = e => e instanceof TypeError ? 'Нет связи. Изменения сохранены на устройстве и отправятся позже.' : e.message;
+
+async function runSync() {
+  if (!sync) return;
+  if (syncing || sheetOpen()) { syncPending = true; return; }
+  syncing = true; syncPending = false;
+  const cfg = sync;
+  const mine = shared(state);
+  setSync('Синхронизация…');
+  try {
+    const remote = shared(await fetchRemote(cfg));
+    const merged = mergeData(base || mine, mine, remote);
+    if (!same(merged, remote)) {
+      await pushRemote(cfg, merged);
+      // Сервер не умеет «записать, только если не меняли» — проверяем, что нас не перезаписали.
+      if (!same(shared(await fetchRemote(cfg)), merged)) { syncPending = true; return; }
+    }
+    if (cfg !== sync) return;
+    if (sheetOpen()) { syncPending = true; return; }   // не трогаем данные под открытой формой
+    // Если пока шёл запрос здесь что-то изменили — накладываем эти правки поверх общего состояния.
+    const current = shared(state);
+    const next = same(current, mine) ? merged : mergeData(mine, current, merged);
+    base = merged;
+    writeJSON(BASE_KEY, base);
+    if (!same(next, current)) {
+      Object.assign(state, next);
+      saveLocal();
+      render();
+    }
+    if (!same(next, merged)) syncPending = true;
+    syncing = false;
+    setSync('Синхронизировано в ' + new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }));
+  } catch (e) {
+    syncing = false;
+    setSync(syncError(e), true);
+  } finally {
+    syncing = false;
+    if (syncPending && !sheetOpen()) scheduleSync(300);
+  }
+}
+
+async function syncCreate() {
+  if (!(window.crypto && crypto.subtle)) { toast('Браузер не поддерживает шифрование'); return; }
+  const btn = $('[data-action="sync-create"]');
+  if (btn) btn.disabled = true;
+  try {
+    const key = bytesToB64(crypto.getRandomValues(new Uint8Array(32)));
+    const data = shared(state);
+    const res = await fetch(SYNC_API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(await seal(data, key))
+    });
+    const loc = res.headers.get('Location') || res.headers.get('X-jsonblob') || '';
+    const id = loc.split('/').pop();
+    if (!res.ok || !/^[\w-]+$/.test(id)) throw new Error('Не удалось включить синхронизацию. Попробуйте ещё раз.');
+    sync = { id, key }; base = data;
+    writeJSON(SYNC_KEY, sync); writeJSON(BASE_KEY, base);
+    setSync('Синхронизация включена');
+    openSettings();
+    toast('Готово! Теперь подключите второе устройство');
+  } catch (e) {
+    if (btn) btn.disabled = false;
+    toast(syncError(e));
+  }
+}
+
+function parseCode(text) {
+  const t = String(text || '').trim();
+  const m = t.match(/sync=([\w-]+\.[\w-]+)/) || t.match(/^([\w-]+\.[\w-]+)$/);
+  if (!m) return null;
+  const [id, key] = m[1].split('.');
+  return { id, key };
+}
+
+// При подключении одинаковые категории и счета (по названию) считаем одними и теми же.
+function adoptLocal(local, remote) {
+  const L = clone(local);
+  const map = {};
+  const match = (list, rlist, key) => list.filter(x => {
+    const m = rlist.find(y => key(y) === key(x));
+    if (m) { map[x.id] = m.id; return false; }
+    return true;
+  });
+  L.categories = match(L.categories, remote.categories, c => c.type + ':' + c.name.trim().toLowerCase());
+  L.accounts = match(L.accounts, remote.accounts, a => a.name.trim().toLowerCase())
+    // пустые счета по умолчанию с нового устройства не добавляем
+    .filter(a => a.initial || L.tx.some(t => t.accountId === a.id || t.toAccountId === a.id) || L.subs.some(x => x.accountId === a.id));
+  const fix = id => map[id] || id;
+  for (const t of L.tx) { t.accountId = fix(t.accountId); if (t.toAccountId) t.toAccountId = fix(t.toAccountId); if (t.categoryId) t.categoryId = fix(t.categoryId); }
+  for (const s of L.subs) { s.accountId = fix(s.accountId); s.categoryId = fix(s.categoryId); }
+  const budgets = {};
+  for (const [k, v] of Object.entries(L.budgets)) if (!(fix(k) in remote.budgets)) budgets[fix(k)] = v;
+  L.budgets = budgets;
+  return L;
+}
+
+async function syncJoin(cfg) {
+  const remote = shared(await fetchRemote(cfg));
+  const mine = shared(state);
+  let merged = remote;
+  const n = state.tx.length + state.subs.length;
+  if (n && confirm(`На этом устройстве уже есть записи (${state.tx.length}). Добавить их к общим данным?\n\nОК — добавить, Отмена — заменить данными с другого устройства.`)) {
+    const empty = { currency: mine.currency, accounts: [], categories: [], tx: [], budgets: {}, subs: [], deleted: {} };
+    merged = mergeData(empty, adoptLocal(mine, remote), remote);
+    merged.currency = remote.currency;
+    await pushRemote(cfg, merged);
+  }
+  sync = cfg; base = merged;
+  writeJSON(SYNC_KEY, sync); writeJSON(BASE_KEY, base);
+  Object.assign(state, clone(merged));
+  filter = { acc: null, cat: null, q: '' };
+  saveLocal();
+  setSync('Синхронизировано в ' + new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }));
+}
+
+function openJoin(prefill = '') {
+  const p = openSheet(`<form id="joinf" novalidate>
+    <div class="sheet-head"><button type="button" class="link" data-action="settings">‹ Назад</button><h2>Подключить</h2><button type="submit" class="link strong">Готово</button></div>
+    <p class="hint" style="margin-top:4px">На устройстве, где синхронизация уже включена: Настройки → Синхронизация → «Скопировать код». Вставьте его сюда.</p>
+    <div class="group"><label class="field"><span>Код</span><input name="code" value="${esc(prefill)}" placeholder="Вставьте код или ссылку" autocomplete="off" autocapitalize="off" spellcheck="false"></label></div>
+    <button type="submit" class="btn">Подключить</button>
+  </form>`);
+  if (!prefill) setTimeout(() => $('[name=code]', p).focus(), 280);
+  $('#joinf', p).addEventListener('submit', async e => {
+    e.preventDefault();
+    const cfg = parseCode(e.target.code.value);
+    if (!cfg) { toast('Код не распознан'); return; }
+    const btn = $('.btn', p); btn.disabled = true; btn.textContent = 'Подключаем…';
+    try {
+      await syncJoin(cfg);
+      closeSheet(); render();
+      toast('Синхронизация подключена');
+    } catch (err) {
+      btn.disabled = false; btn.textContent = 'Подключить';
+      toast(syncError(err));
+    }
+  });
+}
+
+function syncSection() {
+  if (!sync) return `
+    <div class="sect">Синхронизация</div>
+    <p class="hint" style="margin-top:0">Одни и те же данные на iPhone и Mac. Всё шифруется на устройстве — сервер видит только набор символов.</p>
+    <button type="button" class="btn" data-action="sync-create">Включить синхронизацию</button>
+    <button type="button" class="btn ghost" data-action="sync-join">У меня уже есть код</button>`;
+  return `
+    <div class="sect">Синхронизация</div>
+    <div class="group">
+      <div class="field"><span>Статус</span><span id="sync-status" class="v ${syncState.err ? 'neg' : ''}" style="flex:1;text-align:right;font-size:14px">${esc(syncState.text || 'Включена')}</span></div>
+      <label class="field"><span>Код</span><input id="sync-code" readonly value="${esc(syncCode())}" style="font-size:13px;color:var(--muted)"></label>
+    </div>
+    <p class="hint">На втором устройстве откройте Кошелёк → Настройки → «У меня уже есть код» и вставьте этот код. Никому его не показывайте — по нему видны ваши данные.</p>
+    <button type="button" class="btn" data-action="sync-copy">Скопировать код</button>
+    <button type="button" class="btn ghost" data-action="sync-share">Отправить на другое устройство</button>
+    <button type="button" class="btn ghost" data-action="sync-now">Синхронизировать сейчас</button>
+    <button type="button" class="btn danger" data-action="sync-off">Отключить на этом устройстве</button>`;
+}
+
 /* ================= События ================= */
 
 let toastTimer;
@@ -1191,12 +1589,12 @@ function toast(msg) {
 const actions = {
   tab: el => { view = el.dataset.v; if (view !== 'ops') { filter.cat = null; } render(); window.scrollTo(0, 0); },
   period: el => { shiftPeriod(Number(el.dataset.d)); render(); },
-  'period-mode': () => {
-    if (period.mode === 'month') period.mode = 'year';
-    else { period.mode = 'month'; if (period.y === new Date().getFullYear()) period.m = new Date().getMonth(); else period.m = 0; }
-    render();
-  },
-  'period-now': () => { const d = new Date(); period.y = d.getFullYear(); period.m = d.getMonth(); render(); },
+  'period-mode': () => { setMode({ week: 'month', month: 'year', year: 'week' }[period.mode]); render(); },
+  'period-set': el => { setMode(el.dataset.m); render(); },
+  'period-now': () => { const d = new Date(); period = { mode: period.mode, y: d.getFullYear(), m: d.getMonth(), ws: mondayOf(d) }; render(); },
+  'spend-kind': () => { state.ui.kind = state.ui.kind === 'income' ? 'expense' : 'income'; filter.cat = null; saveLocal(); render(); },
+  'spend-view': el => { state.ui.chart = el.dataset.v; saveLocal(); drawOpsList(); },
+  'f-cat': el => { filter.cat = filter.cat === el.dataset.id ? null : el.dataset.id; render(); },
   'toggle-hide': () => { state.ui.hide = !state.ui.hide; save(); render(); },
   settings: openSettings,
   close: closeSheet,
@@ -1220,8 +1618,28 @@ const actions = {
   export: exportJSON,
   'export-csv': exportCSV,
   demo: loadDemo,
+  'sync-create': syncCreate,
+  'sync-join': () => openJoin(),
+  'sync-now': () => { syncManual = true; runSync(); },
+  'sync-copy': async () => {
+    try { await navigator.clipboard.writeText(syncCode()); toast('Код скопирован'); }
+    catch (e) { const i = $('#sync-code'); if (i) { i.select(); } toast('Скопируйте код вручную'); }
+  },
+  'sync-share': async () => {
+    const url = syncLink();
+    if (navigator.share) { try { await navigator.share({ title: 'Кошелёк', text: 'Код синхронизации Кошелька', url }); return; } catch (e) { if (e.name === 'AbortError') return; } }
+    try { await navigator.clipboard.writeText(url); toast('Ссылка скопирована'); } catch (e) { toast('Скопируйте код вручную'); }
+  },
+  'sync-off': () => {
+    if (!confirm('Отключить синхронизацию на этом устройстве? Данные останутся здесь, но перестанут обновляться.')) return;
+    sync = null; base = null; syncState = { text: '', err: false };
+    writeJSON(SYNC_KEY, null); writeJSON(BASE_KEY, null);
+    openSettings(); toast('Синхронизация отключена');
+  },
   reset: () => {
-    if (!confirm('Удалить все счета, записи, бюджеты и подписки? Это нельзя отменить.')) return;
+    if (!confirm(sync
+      ? 'Удалить все счета, записи, бюджеты и подписки на ВСЕХ подключённых устройствах? Это нельзя отменить.'
+      : 'Удалить все счета, записи, бюджеты и подписки? Это нельзя отменить.')) return;
     const ui = state.ui; state = defaults(); state.ui = ui; filter = { acc: null, cat: null, q: '' };
     commit('Все данные удалены');
   }
@@ -1239,10 +1657,26 @@ document.addEventListener('input', e => {
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && $('#sheet').classList.contains('open')) closeSheet();
 });
-// Новый день или возврат в приложение: пересчитать «сегодня» и подписки
-document.addEventListener('visibilitychange', () => { if (!document.hidden && !$('#sheet').classList.contains('open')) render(); });
+// Новый день или возврат в приложение: пересчитать «сегодня» и подписки, подтянуть изменения
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  if (!sheetOpen()) render();
+  scheduleSync(0);
+});
+setInterval(() => { if (!document.hidden) runSync(); }, SYNC_EVERY_MS);
+window.addEventListener('online', () => scheduleSync(0));
 
 render();
+scheduleSync(0);
+
+// Ссылка вида …/wallet/#sync=<код> сразу открывает подключение
+{
+  const cfg = parseCode(location.hash);
+  if (cfg) {
+    history.replaceState(null, '', location.pathname + location.search);
+    if (!sync || sync.id !== cfg.id) openJoin(`${cfg.id}.${cfg.key}`);
+  }
+}
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.register('sw.js').catch(() => {});
