@@ -1291,12 +1291,16 @@ function loadDemo() {
 }
 
 /* ================= Синхронизация ================= */
-// Общие данные лежат на jsonblob.com (без регистрации), зашифрованные AES-GCM.
-// Ключ есть только в коде синхронизации на устройствах, сервер видит лишь шифр.
+// Общие данные лежат в своей базе Supabase (таблица и функции — в supabase.sql),
+// зашифрованные AES-GCM. Ключ есть только в коде синхронизации на устройствах,
+// сервер видит лишь шифр.
 // Слияние трёхстороннее: base — последнее общее состояние, поэтому удаления и правки
 // с разных устройств не затирают друг друга.
 
-const SYNC_API = 'https://jsonblob.com/api/jsonBlob';
+// Адрес проекта и публичный ключ (Project Settings → API). Публичный ключ можно
+// хранить в коде: напрямую к таблице он доступа не даёт, только к двум функциям.
+const SUPABASE_URL = 'https://sdhsderhnuztkejykril.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_yEKvrGc4ze4JOVhYWHuoyg_2sB2Sr0O';
 const SYNC_KEY = 'wallet:sync';
 const BASE_KEY = 'wallet:base';
 const SYNC_EVERY_MS = 30000;
@@ -1402,21 +1406,26 @@ function scheduleSync(delay = 800) {
   syncTimer = setTimeout(runSync, delay);
 }
 
+const syncReady = () => !!(SUPABASE_URL && SUPABASE_KEY);
+function rpc(fn, body) {
+  const headers = { 'Content-Type': 'application/json', Accept: 'application/json', apikey: SUPABASE_KEY };
+  if (SUPABASE_KEY.startsWith('eyJ')) headers.Authorization = 'Bearer ' + SUPABASE_KEY;   // старый формат ключа
+  return fetch(`${SUPABASE_URL.replace(/\/$/, '')}/rest/v1/rpc/${fn}`, { method: 'POST', headers, body: JSON.stringify(body), cache: 'no-store' });
+}
 async function fetchRemote(cfg) {
-  const res = await fetch(`${SYNC_API}/${encodeURIComponent(cfg.id)}`, { headers: { Accept: 'application/json' }, cache: 'no-store' });
-  if (res.status === 404) throw new Error('Общие данные не найдены. Проверьте код.');
-  if (!res.ok) throw new Error('Сервер синхронизации не отвечает');
-  return unseal(await res.json(), cfg.key);
+  const res = await rpc('wallet_get', { p_id: cfg.id });
+  if (!res.ok) throw new Error(`Сервер синхронизации ответил ошибкой (${res.status})`);
+  const payload = await res.json();
+  if (!payload) throw new Error('Общие данные не найдены. Проверьте код.');
+  return unseal(payload, cfg.key);
 }
 async function pushRemote(cfg, data) {
-  const res = await fetch(`${SYNC_API}/${encodeURIComponent(cfg.id)}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify(await seal(data, cfg.key))
-  });
-  if (!res.ok) throw new Error('Не удалось сохранить на сервер');
+  const res = await rpc('wallet_put', { p_id: cfg.id, p_data: await seal(data, cfg.key) });
+  if (!res.ok) throw new Error(`Не удалось сохранить на сервер (${res.status})`);
 }
-const syncError = e => e instanceof TypeError ? 'Нет связи. Изменения сохранены на устройстве и отправятся позже.' : e.message;
+const syncError = e => !(e instanceof TypeError) ? e.message
+  : navigator.onLine === false ? 'Нет интернета. Изменения сохранены на устройстве и отправятся позже.'
+  : 'Сервер синхронизации недоступен. Изменения сохранены на устройстве.';
 
 async function runSync() {
   if (!sync) return;
@@ -1463,15 +1472,9 @@ async function syncCreate() {
   if (btn) btn.disabled = true;
   try {
     const key = bytesToB64(crypto.getRandomValues(new Uint8Array(32)));
+    const id = bytesToB64(crypto.getRandomValues(new Uint8Array(16)));
     const data = shared(state);
-    const res = await fetch(SYNC_API, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify(await seal(data, key))
-    });
-    const loc = res.headers.get('Location') || res.headers.get('X-jsonblob') || '';
-    const id = loc.split('/').pop();
-    if (!res.ok || !/^[\w-]+$/.test(id)) throw new Error('Не удалось включить синхронизацию. Попробуйте ещё раз.');
+    await pushRemote({ id, key }, data);
     sync = { id, key }; base = data;
     writeJSON(SYNC_KEY, sync); writeJSON(BASE_KEY, base);
     setSync('Синхронизация включена');
@@ -1557,6 +1560,9 @@ function openJoin(prefill = '') {
 }
 
 function syncSection() {
+  if (!syncReady()) return `
+    <div class="sect">Синхронизация</div>
+    <p class="hint" style="margin-top:0">Синхронизация между устройствами ещё не настроена.</p>`;
   if (!sync) return `
     <div class="sect">Синхронизация</div>
     <p class="hint" style="margin-top:0">Одни и те же данные на iPhone и Mac. Всё шифруется на устройстве — сервер видит только набор символов.</p>
