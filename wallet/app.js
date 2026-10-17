@@ -103,13 +103,24 @@ function fmt(c, { sign = false, short = false } = {}) {
 }
 const money = (c, o) => `<span class="money">${fmt(c, o)}</span>`;
 
+// Одно число в любом привычном виде: «12,5», «5,721.27», «5.721,27», «1 500», «₪200».
+function normNum(p) {
+  const lc = p.lastIndexOf(','), ld = p.lastIndexOf('.');
+  if (lc >= 0 && ld >= 0) {
+    const dec = lc > ld ? ',' : '.';                      // последний знак — дробная часть
+    return p.split(dec === ',' ? '.' : ',').join('').replace(dec, '.');
+  }
+  const sep = lc >= 0 ? ',' : ld >= 0 ? '.' : null;
+  if (!sep) return p;
+  return p.split(sep).length > 2 ? p.split(sep).join('') : p.replace(sep, '.');
+}
 // «12,5» → 1250, «20+15.5» → 3550
 function parseAmount(str) {
-  const parts = String(str).replace(/\s/g, '').replace(/,/g, '.').split('+');
+  const parts = String(str).replace(/[^\d.,+]/g, '').split('+');
   let total = 0;
   for (const p of parts) {
     if (p === '') continue;
-    const n = Number(p);
+    const n = Number(normNum(p));
     if (!isFinite(n)) return NaN;
     total += n;
   }
@@ -923,6 +934,7 @@ function openTx(id, preset = {}) {
       <label class="field"><span>Дата</span><input type="date" name="date" value="${t?.date || today()}" required></label>
       <label class="field"><span>Заметка</span><input name="note" placeholder="Например, ужин" value="${esc(t?.note || '')}" maxlength="80"></label>
     </div>
+    <button type="submit" class="btn">Сохранить</button>
     ${t ? '<button type="button" class="btn danger" data-del>Удалить запись</button>' : ''}
   </form>`);
 
@@ -966,7 +978,13 @@ function openTx(id, preset = {}) {
     if (!(amount > 0)) { toast('Введите сумму'); f.amount.focus(); return; }
     if (type === 'transfer') {
       if (!to || to === acc) { toast('Выберите два разных счёта'); return; }
-    } else if (!cat) { toast('Выберите категорию'); return; }
+    } else if (!cat) {
+      toast('Выберите категорию');
+      const g = $('.cat-grid', p);
+      g.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      g.classList.remove('flash'); void g.offsetWidth; g.classList.add('flash');
+      return;
+    }
     const rec = {
       id: t?.id || uid(), ts: t?.ts || Date.now(), type, amount,
       accountId: acc, date: f.date.value || today(), note: f.note.value.trim()
@@ -993,6 +1011,7 @@ function openAccount(id) {
       <label class="field"><span>Баланс сейчас</span><input name="bal" inputmode="decimal" value="${a ? (cur / 100).toFixed(2) : ''}" placeholder="0.00"></label>
     </div>
     <p class="hint">Если баланс в банке не совпадает — просто впишите правильный, приложение подстроит начальный остаток.</p>
+    <button type="submit" class="btn">Сохранить</button>
     <div class="sect">Значок</div>
     <div class="emoji-grid" id="ei">${ACC_ICONS.map(i => `<button type="button" data-i="${i}" aria-pressed="${i === icon}">${i}</button>`).join('')}</div>
     <div class="sect">Цвет</div>
@@ -1055,6 +1074,7 @@ function openSub(id) {
       <label class="field"><span>Категория</span><select name="cat">${opt(catsOf('expense').map(c => [c.id, `${c.icon} ${c.name}`]), s?.categoryId || subCat)}</select></label>
     </div>
     <p class="hint">В день платежа он появится в «Ожидают оплаты» — подтвердите, и расход запишется на счёт.</p>
+    <button type="submit" class="btn">Сохранить</button>
     ${s ? `<button type="button" class="btn ghost" data-pause>${s.active === false ? 'Возобновить' : 'Поставить на паузу'}</button>
       <button type="button" class="btn danger" data-del>Удалить подписку</button>` : ''}
   </form>`);
