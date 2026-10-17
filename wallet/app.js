@@ -1299,8 +1299,8 @@ function loadDemo() {
 
 // Адрес проекта и публичный ключ (Project Settings → API). Публичный ключ можно
 // хранить в коде: напрямую к таблице он доступа не даёт, только к двум функциям.
-const SUPABASE_URL = '';
-const SUPABASE_KEY = '';
+const SUPABASE_URL = 'https://sdhsderhnuztkejykril.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_yEKvrGc4ze4JOVhYWHuoyg_2sB2Sr0O';
 const SYNC_KEY = 'wallet:sync';
 const BASE_KEY = 'wallet:base';
 const SYNC_EVERY_MS = 30000;
