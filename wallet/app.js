@@ -1209,6 +1209,7 @@ function openCategory(id, type = 'expense') {
     <div class="emoji-grid">${CAT_ICONS.map(i => `<button type="button" data-i="${i}" aria-pressed="${i === icon}">${i}</button>`).join('')}</div>
     <div class="sect">Цвет</div>
     <div class="color-row">${PALETTE.map(x => `<button type="button" data-c="${x}" style="background:${x}" aria-pressed="${x === color}" aria-label="Цвет ${x}"></button>`).join('')}</div>
+    <button type="submit" class="btn">Сохранить</button>
     ${c ? '<button type="button" class="btn danger" data-del>Удалить категорию</button>' : ''}
   </form>`);
   p.addEventListener('click', e => {
